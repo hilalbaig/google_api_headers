@@ -30,38 +30,48 @@ class GoogleApiHeadersPlugin : MethodCallHandler, FlutterPlugin {
         context = null
     }
 
-    @SuppressLint("PackageManagerGetSignatures")
-    @UiThread
-    override fun onMethodCall(call: MethodCall, result: Result) {
-        if (call.method == "getSigningCertSha1") {
-            try {
-                val packageManager = context!!.packageManager
-                val args = call.arguments<String>()!!
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                    packageManager.getPackageInfo(
-                        args,
-                        PackageManager.GET_SIGNING_CERTIFICATES
-                    ).signingInfo.apkContentsSigners.forEach { signature ->
-                        parseSignature(
-                            signature,
-                            result
-                        )
-                    }
-                } else {
-                    @Suppress("DEPRECATION")
-                    packageManager.getPackageInfo(
-                        args,
-                        PackageManager.GET_SIGNATURES
-                    ).signatures.forEach { signature -> parseSignature(signature, result) }
-                }
+@SuppressLint("PackageManagerGetSignatures")
+@UiThread
+override fun onMethodCall(call: MethodCall, result: Result) {
+    if (call.method == "getSigningCertSha1") {
+        try {
+            val packageManager = context!!.packageManager
+            val args = call.arguments<String>()!!
 
-            } catch (e: Exception) {
-                result.error("ERROR", e.toString(), null)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                val signingInfo = packageManager.getPackageInfo(
+                    args,
+                    PackageManager.GET_SIGNING_CERTIFICATES
+                ).signingInfo
+
+                // Use safe call with Elvis operator to handle null cases
+                signingInfo?.apkContentsSigners?.forEach { signature ->
+                    parseSignature(signature, result)
+                } ?: run {
+                    result.error("ERROR", "SigningInfo is null", null)
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                val signatures = packageManager.getPackageInfo(
+                    args,
+                    PackageManager.GET_SIGNATURES
+                ).signatures
+
+                // Handle nullable signatures array
+                signatures?.forEach { signature ->
+                    parseSignature(signature, result)
+                } ?: run {
+                    result.error("ERROR", "Signatures array is null", null)
+                }
             }
-        } else {
-            result.notImplemented()
+        } catch (e: Exception) {
+            result.error("ERROR", e.toString(), null)
         }
+    } else {
+        result.notImplemented()
     }
+}
+
 
     private fun parseSignature(signature: Signature, result: Result) {
         val md: MessageDigest = MessageDigest.getInstance("SHA1")
